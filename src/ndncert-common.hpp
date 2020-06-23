@@ -108,6 +108,7 @@ const std::string JSON_CLIENT_PROBE_INFO = "probe-info";
 const std::string JSON_CLIENT_ECDH = "ecdh-pub";
 const std::string JSON_CLIENT_CERT_REQ = "cert-request";
 const std::string JSON_CLIENT_SELECTED_CHALLENGE = "selected-challenge";
+const std::string JSON_CLIENT_CERT_REVOKE = "cert-revoke";
 
 // NDNCERT Status Enum
 enum {

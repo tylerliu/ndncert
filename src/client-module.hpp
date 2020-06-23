@@ -111,6 +111,12 @@ public:
   shared_ptr<security::v2::Certificate>
   onDownloadResponse(const Data& reply);
 
+  shared_ptr<Interest>
+  generateRevokeInterest(const security::v2::Certificate& certificate);
+
+  std::list<std::string>
+  onRevokeResponse(const Data& reply);
+
   void
   onCertFetchResponse(const Data& reply);
 
@@ -134,6 +140,9 @@ PUBLIC_WITH_TESTS_ELSE_PRIVATE:
   const JsonSection
   genNewRequestJson(const std::string& ecdhPub, const security::v2::Certificate& certRequest,
                     const shared_ptr<Data>& probeToken = nullptr);
+
+  const JsonSection
+  genRevokeRequestJson(const std::string& ecdhPub, const security::v2::Certificate& certificate);
 
 PUBLIC_WITH_TESTS_ELSE_PRIVATE:
   ClientConfig m_config;

@@ -313,6 +313,65 @@ ClientModule::onDownloadResponse(const Data& reply)
   }
 }
 
+shared_ptr<Interest>
+ClientModule::generateRevokeInterest(const security::v2::Certificate& certificate)
+{
+    // Name requestedName = identityName;
+    bool findCa = false;
+    for (const auto& caItem : m_config.m_caItems) {
+        if (caItem.m_caName.isPrefixOf(certificate.getName())) {
+            m_ca = caItem;
+            findCa = true;
+        }
+    }
+    if (!findCa) { // if cannot find, cannot proceed
+        _LOG_TRACE("Cannot find corresponding CA for the certificate.");
+        return nullptr;
+    }
+
+    // generate Interest packet
+    Name interestName = m_ca.m_caName;
+    interestName.append("CA").append("_REVOKE");
+    auto interest = make_shared<Interest>(interestName);
+    interest->setMustBeFresh(true);
+    interest->setCanBePrefix(false);
+    interest->setApplicationParameters(paramFromJson(genRevokeRequestJson(m_ecdh.getBase64PubKey(), certificate)));
+
+    // return the Interest packet
+    return interest;
+}
+
+std::list<std::string>
+ClientModule::onRevokeResponse(const Data& reply)
+{
+    if (!security::verifySignature(reply, m_ca.m_anchor)) {
+        _LOG_ERROR("Cannot verify data signature from " << m_ca.m_caName.toUri());
+        return std::list<std::string>();
+    }
+    auto contentJson = getJsonFromData(reply);
+
+    // ECDH
+    const auto& peerKeyBase64Str = contentJson.get(JSON_CA_ECDH, "");
+    const auto& saltStr = contentJson.get(JSON_CA_SALT, "");
+    uint64_t saltInt = std::stoull(saltStr);
+    m_ecdh.deriveSecret(peerKeyBase64Str);
+
+    // HKDF
+    hkdf(m_ecdh.context->sharedSecret, m_ecdh.context->sharedSecretLen,
+         (uint8_t*)&saltInt, sizeof(saltInt), m_aesKey, sizeof(m_aesKey));
+
+    // update state
+    m_status = contentJson.get(JSON_CA_STATUS, 0);
+    m_requestId = contentJson.get(JSON_CA_REQUEST_ID, "");
+
+    auto challengesJson = contentJson.get_child(JSON_CA_CHALLENGES);
+    m_challengeList.clear();
+    for (const auto& challengeJson : challengesJson) {
+        m_challengeList.push_back(challengeJson.second.get(JSON_CA_CHALLENGE_ID, ""));
+    }
+    return m_challengeList;
+}
+
 void
 ClientModule::onCertFetchResponse(const Data& reply)
 {
@@ -413,6 +472,25 @@ ClientModule::genNewRequestJson(const std::string& ecdhPub, const security::v2::
     root.put("probe-token", ss.str());
   }
   return root;
+}
+
+const JsonSection
+ClientModule::genRevokeRequestJson(const std::string& ecdhPub, const security::v2::Certificate& certificate)
+{
+    JsonSection root;
+    std::stringstream ss;
+    try {
+        security::transform::bufferSource(certificate.wireEncode().wire(), certificate.wireEncode().size())
+                >> security::transform::base64Encode(false)
+                >> security::transform::streamSink(ss);
+    }
+    catch (const security::transform::Error& e) {
+        _LOG_ERROR("Cannot convert self-signed cert into BASE64 string " << e.what());
+        return root;
+    }
+    root.put(JSON_CLIENT_ECDH, ecdhPub);
+    root.put(JSON_CLIENT_CERT_REVOKE, ss.str());
+    return root;
 }
 
 Block

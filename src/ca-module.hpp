@@ -84,6 +84,9 @@ PUBLIC_WITH_TESTS_ELSE_PRIVATE:
   onDownload(const Interest& request);
 
   void
+  onRevoke(const Interest& request);
+
+  void
   onRegisterFailed(const std::string& reason);
 
   CertificateRequest

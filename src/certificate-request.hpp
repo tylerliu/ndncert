@@ -29,6 +29,13 @@ namespace ndncert {
 
 typedef boost::property_tree::ptree JsonSection;
 
+//Request Type Enum
+enum {
+    REQUEST_TYPE_NEW = 0,
+    REQUEST_TYPE_RENEW = 1,
+    REQUEST_TYPE_REVOKE = 2
+};
+
 /**
  * @brief Represents a certificate request instance.
  *
@@ -40,8 +47,8 @@ class CertificateRequest
 {
 public:
   CertificateRequest();
-  CertificateRequest(const Name& caName, const std::string& requestId, int status, const security::v2::Certificate& cert);
-  CertificateRequest(const Name& caName, const std::string& requestId, int status,
+  CertificateRequest(const Name& caName, const std::string& requestId, int requestType, int status, const security::v2::Certificate& cert);
+  CertificateRequest(const Name& caName, const std::string& requestId, int requestType, int status,
                      const std::string& challengeStatus, const std::string& challengeType,
                      const std::string& challengeTp, int remainingTime, int remainingTries,
                      const JsonSection& challengeSecrets, const security::v2::Certificate& cert);
@@ -52,6 +59,7 @@ public:
 public:
   Name m_caName;
   std::string m_requestId = "";
+  int m_request_type = -1;
   int m_status = -1;
   security::v2::Certificate m_cert;
   std::shared_ptr<Data> m_probeToken = nullptr;

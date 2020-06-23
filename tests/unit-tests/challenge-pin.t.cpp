@@ -39,7 +39,7 @@ BOOST_AUTO_TEST_CASE(OnChallengeRequestWithEmptyInfo)
   auto identity = addIdentity(Name("/ndn/site1"));
   auto key = identity.getDefaultKey();
   auto cert = key.getDefaultCertificate();
-  CertificateRequest request(Name("/ndn/site1"), "123", STATUS_BEFORE_CHALLENGE, cert);
+  CertificateRequest request(Name("/ndn/site1"), "123", REQUEST_TYPE_NEW, STATUS_BEFORE_CHALLENGE, cert);
 
   ChallengePin challenge;
   challenge.handleChallengeRequest(JsonSection(), request);
@@ -56,7 +56,7 @@ BOOST_AUTO_TEST_CASE(OnChallengeRequestWithCode)
   auto cert = key.getDefaultCertificate();
   JsonSection secret;
   secret.add(ChallengePin::JSON_PIN_CODE, "12345");
-  CertificateRequest request(Name("/ndn/site1"), "123", STATUS_CHALLENGE, ChallengePin::NEED_CODE, "pin",
+  CertificateRequest request(Name("/ndn/site1"), "123", REQUEST_TYPE_NEW, STATUS_CHALLENGE, ChallengePin::NEED_CODE, "pin",
                              time::toIsoString(time::system_clock::now()), 3600, 3, secret, cert);
 
   JsonSection paramJson;
@@ -77,7 +77,7 @@ BOOST_AUTO_TEST_CASE(OnChallengeRequestWithWrongCode)
   auto cert = key.getDefaultCertificate();
   JsonSection secret;
   secret.add(ChallengePin::JSON_PIN_CODE, "12345");
-  CertificateRequest request(Name("/ndn/site1"), "123", STATUS_CHALLENGE, ChallengePin::NEED_CODE, "pin",
+  CertificateRequest request(Name("/ndn/site1"), "123", REQUEST_TYPE_NEW, STATUS_CHALLENGE, ChallengePin::NEED_CODE, "pin",
                              time::toIsoString(time::system_clock::now()), 3600, 3, secret, cert);
 
   JsonSection paramJson;

@@ -46,7 +46,7 @@ BOOST_AUTO_TEST_CASE(OnChallengeRequestWithEmail)
   auto identity = addIdentity(Name("/ndn/site1"));
   auto key = identity.getDefaultKey();
   auto cert = key.getDefaultCertificate();
-  CertificateRequest request(Name("/ndn/site1"), "123", STATUS_BEFORE_CHALLENGE, cert);
+  CertificateRequest request(Name("/ndn/site1"), "123", REQUEST_TYPE_NEW, STATUS_BEFORE_CHALLENGE, cert);
 
   JsonSection emailJson;
   emailJson.put(ChallengeEmail::JSON_EMAIL, "zhiyi@cs.ucla.edu");
@@ -95,7 +95,7 @@ BOOST_AUTO_TEST_CASE(OnChallengeRequestWithInvalidEmail)
   auto identity = addIdentity(Name("/ndn/site1"));
   auto key = identity.getDefaultKey();
   auto cert = key.getDefaultCertificate();
-  CertificateRequest request(Name("/ndn/site1"), "123", STATUS_BEFORE_CHALLENGE, cert);
+  CertificateRequest request(Name("/ndn/site1"), "123", REQUEST_TYPE_NEW, STATUS_BEFORE_CHALLENGE, cert);
 
   JsonSection emailJson;
   emailJson.put(ChallengeEmail::JSON_EMAIL, "zhiyi@cs");
@@ -114,7 +114,7 @@ BOOST_AUTO_TEST_CASE(OnChallengeRequestWithCode)
   auto cert = key.getDefaultCertificate();
   JsonSection json;
   json.put(ChallengeEmail::JSON_CODE, "4567");
-  CertificateRequest request(Name("/ndn/site1"), "123", STATUS_CHALLENGE, ChallengeEmail::NEED_CODE,
+  CertificateRequest request(Name("/ndn/site1"), "123", REQUEST_TYPE_NEW, STATUS_CHALLENGE, ChallengeEmail::NEED_CODE,
                              "Email", time::toIsoString(time::system_clock::now()), 3600, 3, json, cert);
 
   JsonSection requestJson;
@@ -135,7 +135,7 @@ BOOST_AUTO_TEST_CASE(OnValidateInterestComingWithWrongCode)
   auto cert = key.getDefaultCertificate();
   JsonSection json;
   json.put(ChallengeEmail::JSON_CODE, "4567");
-  CertificateRequest request(Name("/ndn/site1"), "123", STATUS_CHALLENGE, ChallengeEmail::NEED_CODE,
+  CertificateRequest request(Name("/ndn/site1"), "123", REQUEST_TYPE_NEW, STATUS_CHALLENGE, ChallengeEmail::NEED_CODE,
                              "email", time::toIsoString(time::system_clock::now()), 3600, 3, json, cert);
 
   JsonSection requestJson;
