@@ -13,7 +13,7 @@ def build(bld):
         name='ndncert-ca-server',
         target='../bin/ndncert-ca-server',
         source='ndncert-ca-server.cpp',
-        use='ndn-cert')
+        use='ndn-cert DLEDGER')
 
     bld.program(
         name='ndncert-ca-status',

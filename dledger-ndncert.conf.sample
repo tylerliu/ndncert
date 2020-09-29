@@ -1,0 +1,7 @@
+{
+    "peerPrefix": "/dledger/ndncert",
+    "multicastPrefix": "/dledger-multicast",
+    "anchorCert": "dledger-anchor.cert",
+    "databasePath": "/tmp/dledger-db/ndncert",
+    "peerCert": ["test-1a.cert", "test-1b.cert", "test-1c.cert", "test-1d.cert", "test-1e.cert"]
+}
