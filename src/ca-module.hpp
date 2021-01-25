@@ -93,6 +93,12 @@ NDNCERT_PUBLIC_WITH_TESTS_ELSE_PRIVATE:
   Data
   generateErrorDataPacket(const Name& name, ErrorCode error, const std::string& errorInfo);
 
+  static bool
+  verifySignature(const Data& data, const security::Certificate& certificate);
+
+  static bool
+  verifySignature(const Interest& interest, const security::Certificate& certificate);
+
 NDNCERT_PUBLIC_WITH_TESTS_ELSE_PRIVATE:
   Face& m_face;
   CaConfig m_config;

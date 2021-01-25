@@ -25,6 +25,10 @@
 #include "detail/crypto-helpers.hpp"
 #include "detail/profile-storage.hpp"
 
+#ifdef NDNCERT_HAS_NDNMPS
+#include <ndnmps/crypto-players.hpp>
+#endif
+
 namespace ndn {
 namespace ndncert {
 namespace requester {
@@ -106,6 +110,11 @@ public:
 
   explicit
   Request(security::KeyChain& keyChain, const CaProfile& profile, RequestType requestType);
+
+#ifdef NDNCERT_HAS_NDNMPS
+  explicit
+  Request(const MpsSigner& signer, const CaProfile& profile, RequestType requestType);
+#endif
 
   // NEW/REVOKE/RENEW related helpers
   /**
@@ -272,16 +281,54 @@ private:
   /**
    * @brief The local keychain to generate and install identities, keys and certificates
    */
-  security::KeyChain& m_keyChain;
-  /**
-   * @brief State about how identity/key is generated.
-   */
-  bool m_isNewlyCreatedIdentity = false;
-  bool m_isNewlyCreatedKey = false;
-  /**
-   * @brief The keypair for the request.
-   */
-  security::Key m_keyPair;
+  class KeyManager{
+  public:
+    virtual ~KeyManager() {};
+    virtual void setIdentityName(const Name& name) = 0;
+    virtual void sign(Interest& interest) = 0;
+    virtual security::Certificate getCertRequest(const security::ValidityPeriod& period) = 0;
+    virtual void endSession(Status status) = 0;
+  };
+
+  unique_ptr<KeyManager> m_keyManager;
+
+  class KeyChainKeyManager : public KeyManager {
+  public:
+    KeyChainKeyManager(KeyChain& keyChain);
+    void setIdentityName(const Name& name);
+    void sign(Interest& interest);
+    security::Certificate getCertRequest(const security::ValidityPeriod& period);
+    void endSession(Status status);
+  private:
+    /**
+     * @brief The local keychain to generate and install identities, keys and certificates
+     */
+    security::KeyChain &m_keyChain;
+
+    /**
+     * @brief The keypair for the request.
+     */
+    security::Key m_keyPair;
+    /**
+     * @brief State about how identity/key is generated.
+     */
+    bool m_isNewlyCreatedIdentity = false;
+    bool m_isNewlyCreatedKey = false;
+  };
+
+#ifdef NDNCERT_HAS_NDNMPS
+  class MpsKeyManager : public KeyManager {
+  public:
+    MpsKeyManager(const MpsSigner& signer);
+    void setIdentityName(const Name& name);
+    void sign(Interest& interest);
+    security::Certificate getCertRequest(const security::ValidityPeriod& period);
+    void endSession(Status status);
+
+  private:
+    MpsSigner m_signer;
+  };
+#endif
 };
 
 } // namespace requester

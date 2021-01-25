@@ -121,7 +121,13 @@ Request::onProbeResponse(const Data& reply, const CaProfile& ca,
 }
 
 Request::Request(security::KeyChain& keyChain, const CaProfile& profile, RequestType requestType)
-    : m_keyChain(keyChain)
+    : m_keyManager(make_unique<KeyChainKeyManager>(keyChain))
+    , caProfile(profile)
+    , type(requestType)
+{}
+
+Request::Request(const MpsSigner& signer, const CaProfile& profile, RequestType requestType)
+    : m_keyManager(make_unique<MpsKeyManager>(signer))
     , caProfile(profile)
     , type(requestType)
 {}
@@ -143,34 +149,10 @@ Request::genNewInterest(const Name& newIdentityName,
     identityName = newIdentityName;
   }
 
-  // generate a newly key pair or use an existing key
-  const auto& pib = m_keyChain.getPib();
-  security::pib::Identity identity;
-  try {
-    identity = pib.getIdentity(identityName);
-  }
-  catch (const security::Pib::Error& e) {
-    identity = m_keyChain.createIdentity(identityName);
-    m_isNewlyCreatedIdentity = true;
-    m_isNewlyCreatedKey = true;
-  }
-  try {
-    m_keyPair = identity.getDefaultKey();
-  }
-  catch (const security::Pib::Error& e) {
-    m_keyPair = m_keyChain.createKey(identity);
-    m_isNewlyCreatedKey = true;
-  }
-  auto& keyName = m_keyPair.getName();
+  m_keyManager->setIdentityName(identityName);
 
   // generate certificate request
-  security::Certificate certRequest;
-  certRequest.setName(Name(keyName).append("cert-request").appendVersion());
-  certRequest.setContentType(ndn::tlv::ContentType_Key);
-  certRequest.setContent(m_keyPair.getPublicKey().data(), m_keyPair.getPublicKey().size());
-  SignatureInfo signatureInfo;
-  signatureInfo.setValidityPeriod(security::ValidityPeriod(notBefore, notAfter));
-  m_keyChain.sign(certRequest, signingByKey(keyName).setSignatureInfo(signatureInfo));
+  security::Certificate certRequest = m_keyManager->getCertRequest(security::ValidityPeriod(notBefore, notAfter));
 
   // generate Interest packet
   Name interestName = caProfile.caPrefix;
@@ -182,7 +164,7 @@ Request::genNewInterest(const Name& newIdentityName,
           requesttlv::encodeApplicationParameters(RequestType::NEW, ecdh.getSelfPubKey(), certRequest));
 
   // sign the Interest packet
-  m_keyChain.sign(*interest, signingByKey(keyName));
+  m_keyManager->sign(*interest);
   return interest;
 }
 
@@ -261,7 +243,7 @@ Request::genChallengeInterest(std::multimap<std::string, std::string>&& paramete
                                              requestId.data(), requestId.size(),
                                              encryptionIv);
   interest->setApplicationParameters(paramBlock);
-  m_keyChain.sign(*interest, signingByKey(m_keyPair.getName()));
+  m_keyManager->sign(*interest);
   return interest;
 }
 
@@ -302,18 +284,8 @@ Request::onCertFetchResponse(const Data& reply)
 void
 Request::endSession()
 {
-  if (status == Status::SUCCESS) {
-    return;
-  }
-  if (m_isNewlyCreatedIdentity) {
-    // put the identity into the if scope is because it may cause an error
-    // outside since when endSession is called, identity may not have been created yet.
-    auto identity = m_keyChain.getPib().getIdentity(identityName);
-    m_keyChain.deleteIdentity(identity);
-  }
-  else if (m_isNewlyCreatedKey) {
-    auto identity = m_keyChain.getPib().getIdentity(identityName);
-    m_keyChain.deleteKey(identity, m_keyPair);
+  if (m_keyManager) {
+    m_keyManager->endSession(status);
   }
 }
 
@@ -330,6 +302,104 @@ Request::processIfError(const Data& data)
                                boost::lexical_cast<std::string>(std::get<0>(errorInfo)) +
                                " and Error Info: " + std::get<1>(errorInfo)));
 }
+
+Request::KeyChainKeyManager::KeyChainKeyManager(KeyChain& keyChain)
+  : m_keyChain(keyChain)
+{}
+
+void
+Request::KeyChainKeyManager::setIdentityName(const Name& identityName)
+{
+  // generate a newly key pair or use an existing key
+  const auto& pib = m_keyChain.getPib();
+  security::pib::Identity identity;
+  try {
+    identity = pib.getIdentity(identityName);
+  }
+  catch (const security::Pib::Error& e) {
+    identity = m_keyChain.createIdentity(identityName);
+    m_isNewlyCreatedIdentity = true;
+    m_isNewlyCreatedKey = true;
+  }
+  try {
+    m_keyPair = identity.getDefaultKey();
+  }
+  catch (const security::Pib::Error& e) {
+    m_keyPair = m_keyChain.createKey(identity);
+    m_isNewlyCreatedKey = true;
+  }
+  auto& keyName = m_keyPair.getName();
+}
+
+void
+Request::KeyChainKeyManager::sign(Interest& interest)
+{
+  m_keyChain.sign(interest, signingByKey(m_keyPair.getName()));
+}
+
+security::Certificate
+Request::KeyChainKeyManager::getCertRequest(const security::ValidityPeriod& period)
+{
+  // generate certificate request
+  security::Certificate certRequest;
+  certRequest.setName(Name(m_keyPair.getName()).append("cert-request").appendVersion());
+  certRequest.setContentType(ndn::tlv::ContentType_Key);
+  certRequest.setContent(m_keyPair.getPublicKey().data(), m_keyPair.getPublicKey().size());
+  SignatureInfo signatureInfo;
+  signatureInfo.setValidityPeriod(period);
+  m_keyChain.sign(certRequest, signingByKey(m_keyPair.getName()).setSignatureInfo(signatureInfo));
+  return certRequest;
+}
+
+void
+Request::KeyChainKeyManager::endSession(Status status)
+{
+  if (status == Status::SUCCESS) {
+    return;
+  }
+  if (m_isNewlyCreatedIdentity) {
+    // put the identity into the if scope is because it may cause an error
+    // outside since when endSession is called, identity may not have been created yet.
+    auto identity = m_keyPair.getIdentity();
+    m_keyChain.deleteIdentity(m_keyChain.getPib().getIdentity(identity));
+  }
+  else if (m_isNewlyCreatedKey) {
+    auto identity = m_keyPair.getIdentity();
+    m_keyChain.deleteKey(m_keyChain.getPib().getIdentity(identity), m_keyPair);
+  }
+}
+
+#ifdef NDNCERT_HAS_NDNMPS
+Request::MpsKeyManager::MpsKeyManager(const MpsSigner& signer)
+        :m_signer(signer)
+{}
+
+void
+Request::MpsKeyManager::setIdentityName(const Name& name)
+{
+  if (!Name(name).append("KEY").isPrefixOf(m_signer.getSignerKeyName()))
+  {
+    NDN_THROW(std::runtime_error("Bad identity name given; not the expected identity for mps signer"));
+  }
+}
+
+void
+Request::MpsKeyManager::sign(Interest& interest)
+{
+  m_signer.sign(interest);
+}
+
+security::Certificate
+Request::MpsKeyManager::getCertRequest(const security::ValidityPeriod& period)
+{
+  return m_signer.getSelfSignCert(period);
+}
+void
+Request::MpsKeyManager::endSession(Status status)
+{
+
+}
+#endif
 
 } // namespace requester
 } // namespace ndncert
