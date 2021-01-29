@@ -17,7 +17,11 @@ pkg_check_modules(NDN_CXX REQUIRED libndn-cxx)
 find_package(SQLite3 REQUIRED)
 find_package(OpenSSL REQUIRED)
 
-pkg_check_modules(NDNMPS libndnmps)
+if (${WITH_NDNMPS})
+    pkg_check_modules(NDNMPS REQUIRED libndnmps)
+# else()
+#     pkg_check_modules(NDNMPS libndnmps)
+endif(${WITH_NDNMPS})
 
 # files
 file(GLOB_RECURSE NDNCERT_LIB_SOURCE_FILES "src/*.cpp" "src/**/*.cpp")
