@@ -23,6 +23,9 @@
 #include <ndn-cxx/security/transform/public-key.hpp>
 #include <ndn-cxx/util/io.hpp>
 #include <ndn-cxx/util/random.hpp>
+#ifdef NDNCERT_HAS_NDNMPS
+#include <ndnmps/crypto-players.hpp>
+#endif
 
 namespace ndn {
 namespace ndncert {
@@ -113,9 +116,20 @@ ChallengePossession::handleChallengeRequest(const Block& params, ca::RequestStat
     bool checkOK = false;
     if (credential.hasContent() && signatureLen == 0) {
       Name signingKeyName = credential.getSignatureInfo().getKeyLocator().getName();
-      security::transform::PublicKey key;
       const auto &pubKeyBuffer = credential.getPublicKey();
-      key.loadPkcs8(pubKeyBuffer.data(), pubKeyBuffer.size());
+      try {
+        security::transform::PublicKey key;
+        key.loadPkcs8(pubKeyBuffer.data(), pubKeyBuffer.size());
+      } catch (const std::exception& e) {
+#ifdef NDNCERT_HAS_NDNMPS
+        blsPublicKey k;
+        if (blsPublicKeyDeserialize(&k, pubKeyBuffer.data(), pubKeyBuffer.size()) == 0) {
+          return returnWithError(request, ErrorCode::BAD_INTEREST_FORMAT, "Bad public key");
+        }
+#else
+        return returnWithError(request, ErrorCode::BAD_INTEREST_FORMAT, "Bad public key");
+#endif
+      }
       for (auto anchor : m_trustAnchors) {
         if (anchor.getKeyName() == signingKeyName) {
           if (security::verifySignature(credential, anchor)) {
@@ -150,11 +164,27 @@ ChallengePossession::handleChallengeRequest(const Block& params, ca::RequestStat
     auto secretCode = *fromHex(request.challengeState->secrets.get(PARAMETER_KEY_NONCE, ""));
 
     //check the proof
-    security::transform::PublicKey key;
     const auto& pubKeyBuffer = credential.getPublicKey();
-    key.loadPkcs8(pubKeyBuffer.data(), pubKeyBuffer.size());
-    if (security::verifySignature(secretCode.data(), secretCode.size(), signature, signatureLen, key)) {
-      return returnWithSuccess(request);
+    try {
+      security::transform::PublicKey key;
+      key.loadPkcs8(pubKeyBuffer.data(), pubKeyBuffer.size());
+      if (security::verifySignature(secretCode.data(), secretCode.size(), signature, signatureLen, key)) {
+        return returnWithSuccess(request);
+      }
+    } catch (const std::exception& e) {
+#ifdef NDNCERT_HAS_NDNMPS
+      blsPublicKey pubKey;
+      blsSignature sig;
+      if (blsPublicKeyDeserialize(&pubKey, pubKeyBuffer.data(), pubKeyBuffer.size()) == 0 ||
+          blsSignatureDeserialize(&sig, signature, signatureLen) == 0) {
+        return returnWithError(request, ErrorCode::INVALID_PARAMETER, "Cannot decode challenge parameter: public key.");
+      }
+      if (blsVerify(&sig, &pubKey, secretCode.data(), secretCode.size())) {
+        return returnWithSuccess(request);
+      }
+#else
+      return returnWithError(request, ErrorCode::INVALID_PARAMETER, "Cannot decode challenge parameter: public key.");
+#endif
     }
     return returnWithError(request, ErrorCode::INVALID_PARAMETER,
             "Cannot verify the proof of private key against credential.");
@@ -244,6 +274,33 @@ ChallengePossession::fulfillParameters(std::multimap<std::string, std::string>& 
   }
   return;
 }
+
+#ifdef NDNCERT_HAS_NDNMPS
+void
+ChallengePossession::fulfillParameters(std::multimap<std::string, std::string>& params,
+                                          const security::Certificate& cert, const MpsSigner& signer,
+                                          const std::array<uint8_t, 16>& nonce)
+{
+  for (auto& item : params) {
+    if (std::get<0>(item) == PARAMETER_KEY_CREDENTIAL_CERT) {
+      const auto& issuedCertTlv = cert.wireEncode();
+      std::get<1>(item) = std::string((char*)issuedCertTlv.wire(), issuedCertTlv.size());
+    }
+    else if (std::get<0>(item) == PARAMETER_KEY_PROOF) {
+      const auto& secretKey = signer.getSecretKey();
+      blsSignature sig;
+      blsSign(&sig, &secretKey, nonce.data(), nonce.size());
+      Buffer sigBuf(blsGetSerializedSignatureByteSize());
+      int outSize = blsSignatureSerialize(sigBuf.data(), sigBuf.size(), &sig);
+      if (outSize == 0) {
+        NDN_THROW(std::runtime_error("Cannot encode signature"));
+      }
+      sigBuf.resize(outSize);
+      std::get<1>(item) = std::string((char*)sigBuf.data(), sigBuf.size());
+    }
+  }
+}
+#endif
 
 } // namespace ndncert
 } // namespace ndn

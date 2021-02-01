@@ -21,6 +21,9 @@
 #define NDNCERT_CHALLENGE_POSSESSION_HPP
 
 #include "challenge-module.hpp"
+#ifdef NDNCERT_HAS_NDNMPS
+#include <ndnmps/crypto-players.hpp>
+#endif
 
 namespace ndn {
 namespace ndncert {
@@ -67,6 +70,13 @@ public:
   static void
   fulfillParameters(std::multimap<std::string, std::string>& params,
                     KeyChain& keyChain, const Name& issuedCertName, const std::array<uint8_t, 16>& nonce);
+
+#ifdef NDNCERT_HAS_NDNMPS
+  static void
+  fulfillParameters(std::multimap<std::string, std::string>& params,
+                    const security::Certificate& cert, const MpsSigner& signer,
+                    const std::array<uint8_t, 16>& nonce);
+#endif
 
   // challenge parameters
   static const std::string PARAMETER_KEY_CREDENTIAL_CERT;

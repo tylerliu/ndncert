@@ -1,0 +1,26 @@
+{
+  "signer-list":
+  [
+    {
+        "certificate": "Bv0BFgc0CAFhCAFiCAFjCANLRVkIBDEyMzQICXNlbGYtc2lnbggTOTkyMzY4NTMwMzkxMzYwNTIxMhQDGAECFTCMKnDp69RVbDK48c+h7YoUt2h/pxEUfpD7XDquYfFCB4rkraGltoJJv3QgUYSN7usWRRsBQBwWBxQIAWEIAWIIAWMIA0tFWQgEMTIzNP0A/Sb9AP4PMjAyMTAyMDlUMTAwODQ3/QD/DzIwMjEwNTIwVDEwMDg0NxdglJSxU62rN6PJnVc779f5cF0nq2KhUJwd4ODt4+zPtWJ0jdn7Ll68fVpovmbdriPjCzj3j0Rao+F4KkclPbVvQHX0gwGPklauM73CPE0I8sMZlzcDM9eu0vls0zAMp7oO"
+    },
+    {
+        "certificate": "Bv0BFgc0CAFhCAFiCAFjCANLRVkIBDEyMzUICXNlbGYtc2lnbggTOTM3MzE5MDY5NTMyNDQyMDc0ORQDGAECFTCulXxwsKAy/8Z8jwW9duyfMQaWV/S8+eiQ82IueczeENuvMbRGiEI5B2cSwRrCeiQWRRsBQBwWBxQIAWEIAWIIAWMIA0tFWQgEMTIzNf0A/Sb9AP4PMjAyMTAyMDlUMTAxNjQ0/QD/DzIwMjEwNTIwVDEwMTY0NBdgiexBbCq4ajmffz2Dc7lG92572dBrvTYxOC76TGOzTSr0sZ2P/u0CZZ9LHQMq6ywfCG3Dh4hpJ8j1EmvYPTMSXG98rqTNU7ceDBSk//+t/JEpH8FC3j9ir7065r7yT2Fk"
+    }
+  ],
+  "mps-schema":
+  {
+    "data-name": "/example/data",
+    "rule-id": "rule1",
+    "all-of": [
+      "/example/a/KEY/_/_",
+      "/example/b/KEY/_/_"
+    ],
+    "at-least-num": 2,
+    "at-least": [
+      "/example/c/KEY/_/_",
+      "/example/d/KEY/_/_",
+      "/example/e/KEY/_/_"
+    ]
+  }
+}

@@ -31,9 +31,13 @@ NDN_LOG_INIT(ndncert.challenge.mps.possession);
 NDNCERT_REGISTER_CHALLENGE(ChallengeMpsPossession, "MpsPossession");
 
 const std::string ChallengeMpsPossession::PARAMETER_KEY_CREDENTIAL_CERT = "issued-cert";
+const std::string ChallengeMpsPossession::PARAMETER_KEY_SIGNER_LIST = "signer-list";
 const std::string ChallengeMpsPossession::PARAMETER_KEY_NONCE = "nonce";
 const std::string ChallengeMpsPossession::PARAMETER_KEY_PROOF = "proof";
 const std::string ChallengeMpsPossession::NEED_PROOF = "need-proof";
+
+const std::string CONFIG_SIGNER_LIST = "signer-list";
+const std::string CONFIG_MPS_SCHEMA = "mps-schema";
 
 ChallengeMpsPossession::ChallengeMpsPossession(const std::string& configPath)
     : ChallengeModule("MpsPossession", 1, time::seconds(60))
@@ -62,8 +66,8 @@ ChallengeMpsPossession::parseConfigFile()
     NDN_THROW(std::runtime_error("Error processing configuration file: " + m_configFile + " no data"));
   }
 
-  m_trustAnchors.clear();
-  auto anchorList = config.get_child("anchor-list");
+  m_verifier.getSignerLists().clear();
+  auto anchorList = config.get_child(CONFIG_SIGNER_LIST);
   auto it = anchorList.begin();
   for (; it != anchorList.end(); it++) {
     std::istringstream ss(it->second.get("certificate", ""));
@@ -72,63 +76,97 @@ ChallengeMpsPossession::parseConfigFile()
       NDN_LOG_ERROR("Cannot load the certificate from config file");
       continue;
     }
-    m_trustAnchors.push_back(*cert);
+    m_verifier.addCert(*cert);
   }
+
+  auto schemaSection = config.get_child(CONFIG_MPS_SCHEMA);
+  std::stringstream ss;
+  boost::property_tree::write_info(ss, schemaSection);
+  m_schema = MultipartySchema::fromINFO(ss.str());
 }
 
 // For CA
 std::tuple<ErrorCode, std::string>
-ChallengeMpsPossession::handleChallengeRequest(const Block& params, ca::RequestState& request)
-{
+ChallengeMpsPossession::handleChallengeRequest(const Block& params, ca::RequestState& request) {
   params.parse();
-  if (m_trustAnchors.empty()) {
+  if (m_verifier.getCerts().empty()) {
     parseConfigFile();
   }
+
+  //possible elements
   security::Certificate credential;
-  const uint8_t* signature = nullptr;
+  const uint8_t *signature = nullptr;
   size_t signatureLen = 0;
-  const auto& elements = params.elements();
+  Name signerListName;
+  MpsSignerList signerList;
+
+  const auto &elements = params.elements();
   for (size_t i = 0; i < elements.size() - 1; i++) {
     if (elements[i].type() == tlv::ParameterKey && elements[i + 1].type() == tlv::ParameterValue) {
       if (readString(elements[i]) == PARAMETER_KEY_CREDENTIAL_CERT) {
         try {
           credential.wireDecode(elements[i + 1].blockFromValue());
         }
-        catch (const std::exception& e) {
+        catch (const std::exception &e) {
           NDN_LOG_ERROR("Cannot load challenge parameter: credential " << e.what());
-          return returnWithError(request, ErrorCode::INVALID_PARAMETER, "Cannot challenge credential: credential." + std::string(e.what()));
+          return returnWithError(request, ErrorCode::INVALID_PARAMETER,
+                                 "Cannot challenge credential: credential." + std::string(e.what()));
         }
-      }
-      else if (readString(elements[i]) == PARAMETER_KEY_PROOF) {
+      } else if (readString(elements[i]) == PARAMETER_KEY_PROOF) {
         signature = elements[i + 1].value();
         signatureLen = elements[i + 1].value_size();
+      } else if (readString(elements[i]) == PARAMETER_KEY_SIGNER_LIST) {
+        try {
+          Data d = Data(elements[i + 1].blockFromValue());
+          const auto &content = d.getContent();
+          content.parse();
+          signerListName = d.getName();
+          signerList = content.get(ndn::tlv::MpsSignerList);
+        }
+        catch (const std::exception &e) {
+          NDN_LOG_ERROR("Cannot load challenge parameter: signer list " << e.what());
+          return returnWithError(request, ErrorCode::INVALID_PARAMETER,
+                                 "Cannot challenge parameter: signer list." + std::string(e.what()));
+        }
       }
+      i ++;
     }
   }
 
-  // verify the credential and the self-signed cert
+  // verify the credential with signer list
   if (request.status == Status::BEFORE_CHALLENGE) {
     NDN_LOG_TRACE("Challenge Interest arrives. Check certificate and init the challenge");
-    // check the certificate
-    bool checkOK = false;
-    if (credential.hasContent() && signatureLen == 0) {
-      Name signingKeyName = credential.getSignatureInfo().getKeyLocator().getName();
+    // check the existence of certificate
+    if (!(credential.hasContent() && signatureLen == 0)) {
+      return returnWithError(request, ErrorCode::BAD_INTEREST_FORMAT, "Cannot find credential in interest");
+    }
+
+    //verify credential format
+    const auto &pubKeyBuffer = credential.getPublicKey();
+    try {
       security::transform::PublicKey key;
-      const auto &pubKeyBuffer = credential.getPublicKey();
       key.loadPkcs8(pubKeyBuffer.data(), pubKeyBuffer.size());
-      for (auto anchor : m_trustAnchors) {
-        if (anchor.getKeyName() == signingKeyName) {
-          if (security::verifySignature(credential, anchor)) {
-            checkOK = true;
-          }
-        }
+    } catch (const std::exception &e) {
+      blsPublicKey k;
+      if (blsPublicKeyDeserialize(&k, pubKeyBuffer.data(), pubKeyBuffer.size()) == 0) {
+        return returnWithError(request, ErrorCode::BAD_INTEREST_FORMAT, "Bad public key");
       }
-    } else {
+    }
+
+    //check signer list
+    m_verifier.getSignerLists().clear();
+    m_verifier.addSignerList(signerListName, signerList);
+
+    for (const auto &i : signerList) {
+      if (m_verifier.getCerts().count(i) == 0)
         return returnWithError(request, ErrorCode::BAD_INTEREST_FORMAT, "Cannot find certificate");
     }
-    if (!checkOK) {
+
+    //verify signature
+    if (!m_verifier.verifySignature(credential, m_schema)) {
       return returnWithError(request, ErrorCode::INVALID_PARAMETER, "Certificate cannot be verified");
     }
+    m_verifier.getSignerLists().clear();
 
     // for the first time, init the challenge
     std::array<uint8_t, 16> secretCode{};
@@ -138,26 +176,42 @@ ChallengeMpsPossession::handleChallengeRequest(const Block& params, ca::RequestS
     auto credential_block = credential.wireEncode();
     secretJson.add(PARAMETER_KEY_CREDENTIAL_CERT, toHex(credential_block.wire(), credential_block.size()));
     NDN_LOG_TRACE("Secret for request " << toHex(request.requestId.data(), request.requestId.size())
-                  << " : " << toHex(secretCode.data(), 16));
-    return returnWithNewChallengeStatus(request, NEED_PROOF, std::move(secretJson), m_maxAttemptTimes, m_secretLifetime);
+                                        << " : " << toHex(secretCode.data(), 16));
+    return returnWithNewChallengeStatus(request, NEED_PROOF, std::move(secretJson), m_maxAttemptTimes,
+                                        m_secretLifetime);
   } else if (request.challengeState && request.challengeState->challengeStatus == NEED_PROOF) {
     NDN_LOG_TRACE("Challenge Interest (proof) arrives. Check the proof");
     //check the format and load credential
     if (credential.hasContent() || signatureLen == 0) {
-        return returnWithError(request, ErrorCode::BAD_INTEREST_FORMAT, "Cannot find certificate");
+      return returnWithError(request, ErrorCode::BAD_INTEREST_FORMAT, "Cannot find certificate");
     }
-    credential = security::Certificate(Block(fromHex(request.challengeState->secrets.get(PARAMETER_KEY_CREDENTIAL_CERT, ""))));
+    credential = security::Certificate(
+        Block(fromHex(request.challengeState->secrets.get(PARAMETER_KEY_CREDENTIAL_CERT, ""))));
     auto secretCode = *fromHex(request.challengeState->secrets.get(PARAMETER_KEY_NONCE, ""));
 
     //check the proof
-    security::transform::PublicKey key;
-    const auto& pubKeyBuffer = credential.getPublicKey();
-    key.loadPkcs8(pubKeyBuffer.data(), pubKeyBuffer.size());
-    if (security::verifySignature(secretCode.data(), secretCode.size(), signature, signatureLen, key)) {
-      return returnWithSuccess(request);
+    const auto &pubKeyBuffer = credential.getPublicKey();
+    try {
+      security::transform::PublicKey key;
+      key.loadPkcs8(pubKeyBuffer.data(), pubKeyBuffer.size());
+      if (security::verifySignature(secretCode.data(), secretCode.size(), signature, signatureLen, key)) {
+        return returnWithSuccess(request);
+      }
+    } catch (const std::exception &e) {
+      blsPublicKey pubKey;
+      blsSignature sig;
+      if (blsPublicKeyDeserialize(&pubKey, pubKeyBuffer.data(), pubKeyBuffer.size()) == 0 ||
+          blsSignatureDeserialize(&sig, signature, signatureLen) == 0) {
+        return returnWithError(request, ErrorCode::INVALID_PARAMETER, "Cannot decode challenge parameter: public key.");
+      }
+      if (blsVerify(&sig, &pubKey, secretCode.data(), secretCode.size())) {
+        return returnWithSuccess(request);
+      }
     }
+
+    //error!
     return returnWithError(request, ErrorCode::INVALID_PARAMETER,
-            "Cannot verify the proof of private key against credential.");
+                           "Cannot verify the proof of private key against credential.");
   }
   NDN_LOG_TRACE("Proof of possession: bad state");
   return returnWithError(request, ErrorCode::INVALID_PARAMETER, "Fail to recognize the request.");
@@ -170,6 +224,7 @@ ChallengeMpsPossession::getRequestedParameterList(Status status, const std::stri
   std::multimap<std::string, std::string> result;
   if (status == Status::BEFORE_CHALLENGE) {
     result.emplace(PARAMETER_KEY_CREDENTIAL_CERT, "Please provide the certificate issued by a trusted CA.");
+    result.emplace(PARAMETER_KEY_SIGNER_LIST, "Please provide the corresponding signer list for the credential.");
     return result;
   } else if (status == Status::CHALLENGE && challengeStatus == NEED_PROOF) {
     result.emplace(PARAMETER_KEY_PROOF, "Please sign a Data packet with request ID as the content.");
@@ -186,16 +241,16 @@ ChallengeMpsPossession::genChallengeRequestTLV(Status status, const std::string&
 {
   Block request(tlv::EncryptedPayload);
   if (status == Status::BEFORE_CHALLENGE) {
-    if (params.size() != 1) {
+    if (params.size() != 2) {
       NDN_THROW(std::runtime_error("Wrong parameter provided."));
     }
     request.push_back(makeStringBlock(tlv::SelectedChallenge, CHALLENGE_TYPE));
     for (const auto& item : params) {
-      if (std::get<0>(item) == PARAMETER_KEY_CREDENTIAL_CERT) {
-        request.push_back(makeStringBlock(tlv::ParameterKey, PARAMETER_KEY_CREDENTIAL_CERT));
+      if (item.first == PARAMETER_KEY_CREDENTIAL_CERT || item.first == PARAMETER_KEY_SIGNER_LIST) {
+        request.push_back(makeStringBlock(tlv::ParameterKey, item.first));
         Block valueBlock(tlv::ParameterValue);
-        auto& certTlvStr = std::get<1>(item);
-        valueBlock.push_back(Block((uint8_t*)certTlvStr.c_str(), certTlvStr.size()));
+        auto& dataTlvStr = std::get<1>(item);
+        valueBlock.push_back(Block((uint8_t*)dataTlvStr.c_str(), dataTlvStr.size()));
         request.push_back(valueBlock);
       }
       else {
@@ -226,23 +281,55 @@ ChallengeMpsPossession::genChallengeRequestTLV(Status status, const std::string&
 
 void
 ChallengeMpsPossession::fulfillParameters(std::multimap<std::string, std::string>& params,
-                                       KeyChain& keyChain, const Name& issuedCertName,
-                                       const std::array<uint8_t, 16>& nonce)
+                                          KeyChain& keyChain, const Name& issuedCertName, const Data& certSignerList,
+                                          const std::array<uint8_t, 16>& nonce)
 {
   auto& pib = keyChain.getPib();
   auto id = pib.getIdentity(security::extractIdentityFromCertName(issuedCertName));
   auto issuedCert = id.getKey(security::extractKeyNameFromCertName(issuedCertName)).getCertificate(issuedCertName);
-  auto issuedCertTlv = issuedCert.wireEncode();
   auto signatureTlv = keyChain.sign(nonce.data(), nonce.size(), security::signingByCertificate(issuedCertName));
   for (auto& item : params) {
-    if (std::get<0>(item) == PARAMETER_KEY_CREDENTIAL_CERT) {
-      std::get<1>(item) = std::string((char*)issuedCertTlv.wire(), issuedCertTlv.size());
+    if (item.first == PARAMETER_KEY_CREDENTIAL_CERT) {
+      auto issuedCertTlv = issuedCert.wireEncode();
+      item.second = std::string((char*)issuedCertTlv.wire(), issuedCertTlv.size());
     }
-    else if (std::get<0>(item) == PARAMETER_KEY_PROOF) {
-      std::get<1>(item) = std::string((char*)signatureTlv.value(), signatureTlv.value_size());
+    else if (item.first == PARAMETER_KEY_SIGNER_LIST) {
+      const auto& signerListTlv = certSignerList.wireEncode();
+      item.second = std::string((char*)signerListTlv.wire(), signerListTlv.size());
+    }
+    else if (item.first == PARAMETER_KEY_PROOF) {
+      item.second = std::string((char*)signatureTlv.value(), signatureTlv.value_size());
     }
   }
-  return;
+}
+
+void
+ChallengeMpsPossession::fulfillParameters(std::multimap<std::string, std::string>& params,
+                                          const security::Certificate& cert, const Data& certSignerList, const MpsSigner& signer,
+                                          const std::array<uint8_t, 16>& nonce)
+{
+  for (auto& item : params) {
+    if (std::get<0>(item) == PARAMETER_KEY_CREDENTIAL_CERT) {
+      const auto& issuedCertTlv = cert.wireEncode();
+      std::get<1>(item) = std::string((char*)issuedCertTlv.wire(), issuedCertTlv.size());
+    }
+    else if (std::get<0>(item) == PARAMETER_KEY_SIGNER_LIST) {
+      const auto& signerListTlv = certSignerList.wireEncode();
+      std::get<1>(item) = std::string((char*)signerListTlv.wire(), signerListTlv.size());
+    }
+    else if (std::get<0>(item) == PARAMETER_KEY_PROOF) {
+      const auto& secretKey = signer.getSecretKey();
+      blsSignature sig;
+      blsSign(&sig, &secretKey, nonce.data(), nonce.size());
+      Buffer sigBuf(blsGetSerializedSignatureByteSize());
+      int outSize = blsSignatureSerialize(sigBuf.data(), sigBuf.size(), &sig);
+      if (outSize == 0) {
+        NDN_THROW(std::runtime_error("Cannot encode signature"));
+      }
+      sigBuf.resize(outSize);
+      std::get<1>(item) = std::string((char*)sigBuf.data(), sigBuf.size());
+    }
+  }
 }
 
 } // namespace ndncert

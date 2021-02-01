@@ -21,6 +21,8 @@
 #define NDNCERT_CHALLENGE_POSSESSION_HPP
 
 #include "challenge/challenge-module.hpp"
+#include <ndnmps/schema.hpp>
+#include <ndnmps/crypto-players.hpp>
 
 namespace ndn {
 namespace ndncert {
@@ -66,10 +68,15 @@ public:
 
   static void
   fulfillParameters(std::multimap<std::string, std::string>& params,
-                    KeyChain& keyChain, const Name& issuedCertName, const std::array<uint8_t, 16>& nonce);
+                    KeyChain& keyChain, const Name& issuedCertName, const Data& certSignerList, const std::array<uint8_t, 16>& nonce);
+
+  static void
+  fulfillParameters(std::multimap<std::string, std::string>& params,
+                    const security::Certificate& cert, const Data& certSignerList, const MpsSigner& signer, const std::array<uint8_t, 16>& nonce);
 
   // challenge parameters
   static const std::string PARAMETER_KEY_CREDENTIAL_CERT;
+  static const std::string PARAMETER_KEY_SIGNER_LIST;
   static const std::string PARAMETER_KEY_NONCE;
   static const std::string PARAMETER_KEY_PROOF;
   static const std::string NEED_PROOF;
@@ -79,8 +86,9 @@ NDNCERT_PUBLIC_WITH_TESTS_ELSE_PRIVATE:
   parseConfigFile();
 
 NDNCERT_PUBLIC_WITH_TESTS_ELSE_PRIVATE:
-  std::list<security::Certificate> m_trustAnchors;
   std::string m_configFile;
+  MultipartySchema m_schema;
+  MpsVerifier m_verifier;
 };
 
 } // namespace ndncert

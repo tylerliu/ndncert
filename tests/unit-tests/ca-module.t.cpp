@@ -602,6 +602,124 @@ BOOST_AUTO_TEST_CASE(HandleRevokeWithBadCert)
   BOOST_CHECK_EQUAL(receiveData, true);
 }
 
+#ifdef NDNCERT_HAS_NDNMPS
+
+BOOST_AUTO_TEST_CASE(HandleNewMps)
+{
+  auto identity = addIdentity(Name("/ndn"));
+  auto key = identity.getDefaultKey();
+  auto cert = key.getDefaultCertificate();
+
+  util::DummyClientFace face(io, m_keyChain, {true, true});
+  CaModule ca(face, m_keyChain, "tests/unit-tests/config-files/config-ca-1", "ca-storage-memory");
+  advanceClocks(time::milliseconds(20), 60);
+
+  CaProfile item;
+  item.caPrefix = Name("/ndn");
+  item.cert = std::make_shared<security::Certificate>(cert);
+  requester::Request state(MpsSigner("/ndn/zhiyi/KEY/188"), item, RequestType::NEW);
+  auto interest = state.genNewInterest(Name("/ndn/zhiyi"),
+                                       time::system_clock::now() - time::seconds(1),
+                                       time::system_clock::now() + time::days(1));
+
+  int count = 0;
+  face.onSendData.connect([&](const Data& response) {
+    count++;
+    BOOST_CHECK(security::verifySignature(response, cert));
+    auto contentBlock = response.getContent();
+    contentBlock.parse();
+
+    BOOST_CHECK(readString(contentBlock.get(tlv::EcdhPub)) != "");
+    BOOST_CHECK(readString(contentBlock.get(tlv::Salt)) != "");
+    BOOST_CHECK(readString(contentBlock.get(tlv::RequestId)) != "");
+
+    auto challengeBlockCount = 0;
+    for (auto const& element : contentBlock.elements()) {
+      if (element.type() == tlv::Challenge) {
+        challengeBlockCount++;
+      }
+    }
+
+    BOOST_CHECK(challengeBlockCount != 0);
+
+    auto challengeList = state.onNewRenewRevokeResponse(response);
+    RequestId requestId;
+    std::memcpy(requestId.data(), contentBlock.get(tlv::RequestId).value(), contentBlock.get(tlv::RequestId).value_size());
+    auto ca_encryption_key = ca.getCaStorage()->getRequest(requestId).encryptionKey;
+    BOOST_CHECK_EQUAL_COLLECTIONS(state.aesKey.begin(), state.aesKey.end(),
+                                  ca_encryption_key.begin(), ca_encryption_key.end());
+  });
+  face.receive(*interest);
+
+  advanceClocks(time::milliseconds(20), 60);
+  BOOST_CHECK_EQUAL(count, 1);
+}
+
+BOOST_AUTO_TEST_CASE(HandleMpsNewWithInvalidValidityPeriod1)
+{
+  auto identity = addIdentity(Name("/ndn"));
+  auto key = identity.getDefaultKey();
+  auto cert = key.getDefaultCertificate();
+
+  util::DummyClientFace face(io, m_keyChain, {true, true});
+  CaModule ca(face, m_keyChain, "tests/unit-tests/config-files/config-ca-1");
+  advanceClocks(time::milliseconds(20), 60);
+
+  CaProfile item;
+  item.caPrefix = Name("/ndn");
+  item.cert = std::make_shared<security::Certificate>(cert);
+  requester::Request state(MpsSigner("/ndn/zhiyi/KEY/1234"), item, RequestType::NEW);
+  auto current_tp = time::system_clock::now();
+  auto interest1 = state.genNewInterest(Name("/ndn/zhiyi"), current_tp, current_tp - time::hours(1));
+  auto interest2 = state.genNewInterest(Name("/ndn/zhiyi"), current_tp, current_tp + time::days(361));
+  auto interest3 = state.genNewInterest(Name("/ndn/zhiyi"), current_tp - time::hours(1), current_tp + time::hours(2));
+  face.onSendData.connect([&](const Data& response) {
+    auto contentTlv = response.getContent();
+    contentTlv.parse();
+    auto errorCode = static_cast<ErrorCode>(readNonNegativeInteger(contentTlv.get(tlv::ErrorCode)));
+    BOOST_CHECK(errorCode != ErrorCode::NO_ERROR);
+  });
+  face.receive(*interest1);
+  face.receive(*interest2);
+  face.receive(*interest3);
+
+  advanceClocks(time::milliseconds(20), 60);
+}
+
+BOOST_AUTO_TEST_CASE(HandleMpsNewWithInvalidCert)
+{
+  auto identity = addIdentity(Name("/ndn"));
+  auto key = identity.getDefaultKey();
+  auto cert = key.getDefaultCertificate();
+
+  util::DummyClientFace face(io, m_keyChain, {true, true});
+  CaModule ca(face, m_keyChain, "tests/unit-tests/config-files/config-ca-1");
+  advanceClocks(time::milliseconds(20), 60);
+
+  CaProfile item;
+  item.caPrefix = Name("/ndn");
+  item.cert = std::make_shared<security::Certificate>(cert);
+  requester::Request state(MpsSigner("/ndn/zhiyi/KEY/1234"), item, RequestType::NEW);
+  auto interest = state.genNewInterest(Name("/ndn/zhiyi"),
+                                       time::system_clock::now() - time::seconds(1),
+                                       time::system_clock::now() + time::days(1));
+  auto buf = make_shared<Buffer>(interest->getSignatureValue().wire(), interest->getSignatureValue().size());
+  buf->data()[10] = 0;
+  interest->setSignatureValue(buf);
+
+  face.onSendData.connect([&](const Data& response) {
+    auto contentTlv = response.getContent();
+    contentTlv.parse();
+    auto errorCode = static_cast<ErrorCode>(readNonNegativeInteger(contentTlv.get(tlv::ErrorCode)));
+    BOOST_CHECK_EQUAL(errorCode, ErrorCode::BAD_SIGNATURE);
+  });
+  face.receive(*interest);
+
+  advanceClocks(time::milliseconds(20), 60);
+}
+
+#endif
+
 BOOST_AUTO_TEST_SUITE_END()  // TestCaModule
 
 } // namespace tests
