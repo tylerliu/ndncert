@@ -132,7 +132,7 @@ main(int argc, char* argv[])
   }
 
   CaModule ca(face, keyChain, configFilePath);
-  std::deque<Data> cachedCertificates;
+  std::deque<RegisteredPrefixHandle> cachedCertHandles;
   auto profileData = ca.getCaProfileData();
 
   std::list<function<void(const RequestState&)>> updateCallbacks;
@@ -148,42 +148,27 @@ main(int argc, char* argv[])
   else {
     updateCallbacks.emplace_back([&](const RequestState& request) {
       if (request.status == Status::SUCCESS && request.requestType == RequestType::NEW) {
-        cachedCertificates.push_front(request.cert);
-        if (cachedCertificates.size() > MAX_CACHED_CERT_NUM) {
-          cachedCertificates.pop_back();
+        if (cachedCertHandles.size() > MAX_CACHED_CERT_NUM) {
+          cachedCertHandles.back().cancel();
+          cachedCertHandles.pop_back();
         }
+        auto cert = request.cert;
+        cachedCertHandles.push_front(face.setInterestFilter(
+            request.cert.getName(), [cert](const InterestFilter&, const Interest& interest){
+          face.put(cert);
+        }, nullptr));
       }
     });
-    face.setInterestFilter(
-        InterestFilter(ca.getCaConf().caProfile.caPrefix),
-        [&](const InterestFilter&, const Interest& interest) {
-          const auto& interestName = interest.getName();
-          if (interestName.isPrefixOf(profileData.getName())) {
-            face.put(profileData);
-            return;
-          }
-          for (const auto& item : cachedCertificates) {
-            if (interestName.isPrefixOf(item.getFullName())) {
-              face.put(item);
-              return;
-            }
-          }
-        },
-        [](const Name&, const std::string& errorInfo) {
-          std::cerr << "ERROR: " << errorInfo << std::endl;
-        });
   }
 
   if (!dledgerConfigPath.empty()) {
-      auto dledger = DledgerUtil::getDledgerByConfig(dledgerConfigPath, keyChain, face);
+    std::shared_ptr<DledgerUtil> dledger = DledgerUtil::getDledgerFromConfig(dledgerConfigPath, keyChain, face);
 
-      updateCallbacks.emplace_back([dledger] (const RequestState& request) {
-          if (request.status == Status::SUCCESS) {
-              DledgerUtil::addRequestToLedger(dledger, request);
-          }
-      });
-
-      dledger->setOnRecordAppCheck(DledgerUtil::checkNdncertRecord);
+    updateCallbacks.emplace_back([dledger](const RequestState &request) {
+      if (request.status == Status::SUCCESS) {
+        dledger->addRequestToLedger(request);
+      }
+    });
   }
 
   if (!updateCallbacks.empty()) {

@@ -1,0 +1,20 @@
+{
+  "signer-list":
+  [
+    {
+        "certificate": "Bv0BJQc8CAtuZG5jZXJ0LW1wcwgBYQgDS0VZCAQxMjM0CAlzZWxmLXNpZ24IFDExNTQ4OTI3MDI2Njk5OTkyMTg1FAMYAQIVMIkdUXH9eU0Zcr+GDr21uFrO/wBbsc9+64LyDQhAsOdUMoMEYKrU8voTyon+qPkBBBZMGwFAHB0HGwgLbmRuY2VydC1tcHMIAWEIA0tFWQgEMTIzNP0A/Sb9AP4PMjAyMTAyMThUMDAxNTEz/QD/DzIwMjIwMjE5VDAwMTUxMxdgjbvW9nZJ1mT7oO5aERpkwyQiOxMFKukL+emkm32wxkA4pKXNCYLAgdAhnSWc6jThE8c8c1VNH62AAoIE0eQOjmC1biMfvORDjMWK/9H7XG/Irc5qqLdlXxBxQKgdcN9q"
+    },
+    {
+        "certificate": "Bv0BJQc8CAtuZG5jZXJ0LW1wcwgBYggDS0VZCAQzNDI1CAlzZWxmLXNpZ24IFDE1MTc4NzExNDQ1NjMzMjU2MTc0FAMYAQIVMIJZdMadwBGmW+9Zaln1qQdWd5OF3QmTb0Bs5xwmFEPdjESkcVUMLyGoaD/EQ8tL0hZMGwFAHB0HGwgLbmRuY2VydC1tcHMIAWIIA0tFWQgEMzQyNf0A/Sb9AP4PMjAyMTAyMThUMDAxNTU5/QD/DzIwMjIwMjE5VDAwMTU1ORdgswyc0Sqa7ybcVacasFfzxrIhT5nJC2qpvmOQ3HSlINqBEGtmqGqo2URs6B6XkcF7A/vzAc3zbHQrhypmOpir0ySYLGnsheARWN9GTaZ913Fivk0QK6R3wCf8AieccVvm"
+    }
+  ],
+  "mps-schema":
+  {
+    "data-name": "/example/data",
+    "rule-id": "rule1",
+    "all-of": [
+      "/ndncert-mps/a/KEY/_",
+      "/ndncert-mps/b/KEY/_"
+    ]
+  }
+}

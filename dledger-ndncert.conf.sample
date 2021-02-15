@@ -1,7 +1,10 @@
 {
-    "peerPrefix": "/dledger/ndncert",
-    "multicastPrefix": "/dledger-multicast",
+    "type": "anchor",
+    "peerPrefix": "/dledger",
+    "multicastPrefix": "/ndn/broadcast/dledger",
     "anchorCert": "dledger-anchor.cert",
     "databasePath": "/tmp/dledger-db/ndncert",
-    "peerCert": ["test-1a.cert", "test-1b.cert", "test-1c.cert", "test-1d.cert", "test-1e.cert"]
+    "recordGraphLog": "records.txt",
+    "peerCert": ["test-certs/test-a.cert", "test-certs/test-b.cert",
+                 "test-certs/test-c.cert", "test-certs/test-d.cert"]
 }

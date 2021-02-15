@@ -15,17 +15,42 @@ namespace ndncert {
 
 class DledgerUtil {
 public:
-static shared_ptr <dledger::Ledger>
-getDledgerByConfig(std::string configPath, security::KeyChain &keychain, Face &face);
-
-static bool
-checkNdncertRecord(const Data& r);
-
-static void
-addRequestToLedger(shared_ptr<dledger::Ledger> dledger, const ca::RequestState& s);
+  static unique_ptr<DledgerUtil>
+      getDledgerFromConfig(std::string configPath, security::KeyChain &keychain, Face &face);
+  virtual void
+  addRequestToLedger(const ca::RequestState &s) = 0;
 
 };
-}
-}
+
+class LoggingDledgerUtil: public DledgerUtil {
+public:
+  LoggingDledgerUtil(std::string configPath, security::KeyChain &keychain, Face &face);
+
+  void
+  addRequestToLedger(const ca::RequestState &s);
+private:
+  static bool
+  checkNdncertRecord(const Data& r);
+
+private:
+  shared_ptr<dledger::Ledger> m_dledger;
+};
+
+class AnchorDledgerUtil: public DledgerUtil {
+public:
+  AnchorDledgerUtil(std::string configPath, security::KeyChain &keychain, Face &face);
+
+  void
+  addRequestToLedger(const ca::RequestState &s);
+private:
+  static bool
+  checkNdncertRecord(const Data& r);
+
+private:
+  shared_ptr<dledger::Ledger> m_dledger;
+};
+
+} // namespace ndncert
+} // namespace ndn
 
 #endif //NDNCERT_NDNCERT_DLEDGER_UTIL_HPP

@@ -28,7 +28,7 @@ namespace ndn {
 namespace ndncert {
 
 NDN_LOG_INIT(ndncert.challenge.mps.possession);
-NDNCERT_REGISTER_CHALLENGE(ChallengeMpsPossession, "MpsPossession");
+NDNCERT_REGISTER_CHALLENGE(ChallengeMpsPossession, "mps-possession");
 
 const std::string ChallengeMpsPossession::PARAMETER_KEY_CREDENTIAL_CERT = "issued-cert";
 const std::string ChallengeMpsPossession::PARAMETER_KEY_SIGNER_LIST = "signer-list";
@@ -40,10 +40,10 @@ const std::string CONFIG_SIGNER_LIST = "signer-list";
 const std::string CONFIG_MPS_SCHEMA = "mps-schema";
 
 ChallengeMpsPossession::ChallengeMpsPossession(const std::string& configPath)
-    : ChallengeModule("MpsPossession", 1, time::seconds(60))
+    : ChallengeModule("mps-possession", 1, time::seconds(60))
 {
   if (configPath.empty()) {
-    m_configFile = std::string(NDNCERT_SYSCONFDIR) + "/ndncert/challenge-credential.conf";
+    m_configFile = "mps-possession-challenge.conf.sample";//std::string(NDNCERT_SYSCONFDIR) + "/ndncert/challenge-credential.conf";
   }
   else {
     m_configFile = configPath;
@@ -240,11 +240,11 @@ ChallengeMpsPossession::genChallengeRequestTLV(Status status, const std::string&
                                             const std::multimap<std::string, std::string>& params)
 {
   Block request(tlv::EncryptedPayload);
+  request.push_back(makeStringBlock(tlv::SelectedChallenge, CHALLENGE_TYPE));
   if (status == Status::BEFORE_CHALLENGE) {
     if (params.size() != 2) {
       NDN_THROW(std::runtime_error("Wrong parameter provided."));
     }
-    request.push_back(makeStringBlock(tlv::SelectedChallenge, CHALLENGE_TYPE));
     for (const auto& item : params) {
       if (item.first == PARAMETER_KEY_CREDENTIAL_CERT || item.first == PARAMETER_KEY_SIGNER_LIST) {
         request.push_back(makeStringBlock(tlv::ParameterKey, item.first));

@@ -39,6 +39,8 @@ if (${NDNMPS_FOUND})
     include_directories(mps-src)
 endif(${NDNMPS_FOUND})
 
+add_compile_definitions(NDNCERT_SYSCONFDIR="${CMAKE_INSTALL_PREFIX}/etc")
+
 # link
 link_directories(${NDN_CXX_LIBRARY_DIRS})
 
@@ -54,3 +56,5 @@ endif(${NDNMPS_FOUND})
 
 add_subdirectory(tools)
 add_subdirectory(tests)
+
+add_subdirectory(demo)
